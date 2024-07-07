@@ -3,10 +3,11 @@
 Just to support subtitles.
 
 ```
-$ python tiny-render.py
+$ pip install tiny-dlna
+$ tiny-render
 ```
 
-Another terminal:
-```
-$ python ssdp.py
-```
+## Related projects
+
+- https://github.com/xfangfang/Macast
+- https://github.com/gabrielmagno/nano-dlna
