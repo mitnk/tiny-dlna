@@ -1,24 +1,27 @@
+import datetime
 import logging
 import socket
 
 SSDP_MULTICAST = '239.255.255.250'
 SSDP_PORT = 1900
-LOCATION = "http://192.168.1.228:5000/description.xml"
-USN = 'uuid:dlna-tiny-render-t001::upnp:rootdevice'
-
-ssdp_response = (
-    'HTTP/1.1 200 OK\r\n'
-    'CACHE-CONTROL: max-age=1800\r\n'
-    'EXT:\r\n'
-    f'LOCATION: {LOCATION}\r\n'
-    'HOSTNAME: 192.168.1.228\r\n'
-    'SERVER: Custom/1.0 UPnP/1.0 DLNADOC/1.50\r\n'
-    f'ST: urn:schemas-upnp-org:service:AVTransport:1\r\n'
-    f'USN: {USN}\r\n'
-    '\r\n'
-)
-
+RENDER_PORT = 55000
+LOCATION = f'http://192.168.1.228:{RENDER_PORT}/description.xml'
+UUID = 'd095ee0c-7bed-43d0-bf98-f815496e8383'
 logger = logging.getLogger('ssdp')
+
+def build_m_search_response():
+    now = datetime.datetime.utcnow()
+    date_str = now.strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    text = 'HTTP/1.1 200 OK\r\n'
+    text += f'USN: uuid:{UUID}::urn:schemas-upnp-org:service:AVTransport:1\r\n'
+    text += f'Location: {LOCATION}\r\n'
+    text += 'ST: urn:schemas-upnp-org:service:AVTransport:1\r\n'
+    text += 'EXT: \r\n'
+    text += 'Server: Werkzeug/3.0.3 Python/3.11.0\r\n'
+    text += 'Cache-Control: max-age=70\r\n'
+    text += f'Date: {date_str}\r\n\r\n'
+    return text.encode('utf-8')
 
 def ssdp_listener():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -33,7 +36,7 @@ def ssdp_listener():
         data, addr = sock.recvfrom(1024)
         if b'M-SEARCH' in data and b'ssdp:discover' in data:
             logger.info(f'Received M-SEARCH from {addr}, sending response...')
-            sock.sendto(ssdp_response.encode('utf-8'), addr)
+            sock.sendto(build_m_search_response(), addr)
 
 if __name__ == '__main__':
     ssdp_listener()

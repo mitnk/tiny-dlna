@@ -23,7 +23,7 @@ Usages
 
 setup(
     name='tiny-dlna',
-    version='0.3.0',
+    version='0.4.0',
     description='a tiny DLNA receiver',
     long_description=DESC,
     url='https://github.com/mitnk/tiny-dlna',
