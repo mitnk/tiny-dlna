@@ -95,44 +95,47 @@ _DATA = {
 
 @app.route('/description.xml')
 def description():
-    xml = """<?xml version="1.0"?>
-<root xmlns="urn:schemas-upnp-org:device-1-0" xmlns:dlna="urn:schemas-dlna-org:device-1-0">
-    <specVersion>
-        <major>1</major>
-        <minor>0</minor>
-    </specVersion>
-    <device>
-        <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
-        <friendlyName>Tiny Render</friendlyName>
-        <manufacturer>mitnk</manufacturer>
-        <modelName>T001</modelName>
-        <UDN>uuid:dlna-tiny-render-t001</UDN>
-        <dlna:X_DLNADOC xmlns:dlna="urn:schemas-dlna-org:device-1-0">DMR-1.50</dlna:X_DLNADOC>
-            <serviceList>
-                <service>
-                <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
-                <serviceId>urn:upnp-org:serviceId:AVTransport</serviceId>
-                <SCPDURL>AVTransport/82d8-eb72-b097/scpd.xml</SCPDURL>
-                <controlURL>AVTransport/82d8-eb72-b097/control</controlURL>
-                <eventSubURL>AVTransport/82d8-eb72-b097/event</eventSubURL>
-                </service>
-                <service>
-                <serviceType>urn:schemas-upnp-org:service:ConnectionManager:1</serviceType>
-                <serviceId>urn:upnp-org:serviceId:ConnectionManager</serviceId>
-                <SCPDURL>ConnectionManager/82d8-eb72-b097/scpd.xml</SCPDURL>
-                <controlURL>ConnectionManager/82d8-eb72-b097/control</controlURL>
-                <eventSubURL>ConnectionManager/82d8-eb72-b097/event</eventSubURL>
-                </service>
-                <service>
-                <serviceType>urn:schemas-upnp-org:service:RenderingControl:1</serviceType>
-                <serviceId>urn:upnp-org:serviceId:RenderingControl</serviceId>
-                <SCPDURL>RenderingControl/82d8-eb72-b097/scpd.xml</SCPDURL>
-                <controlURL>RenderingControl/82d8-eb72-b097/control</controlURL>
-                <eventSubURL>RenderingControl/82d8-eb72-b097/event</eventSubURL>
-                </service>
-            </serviceList>
-    </device>
-</root>"""
+    desc_ptn = """<?xml version="1.0"?>
+      <root xmlns="urn:schemas-upnp-org:device-1-0" xmlns:dlna="urn:schemas-dlna-org:device-1-0">
+      <specVersion>
+          <major>1</major>
+          <minor>0</minor>
+      </specVersion>
+      <device>
+          <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+          <friendlyName>{}</friendlyName>
+          <manufacturer>mitnk</manufacturer>
+          <modelName>T001</modelName>
+          <UDN>uuid:dlna-tiny-render-t001</UDN>
+          <dlna:X_DLNADOC xmlns:dlna="urn:schemas-dlna-org:device-1-0">DMR-1.50</dlna:X_DLNADOC>
+              <serviceList>
+                  <service>
+                  <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
+                  <serviceId>urn:upnp-org:serviceId:AVTransport</serviceId>
+                  <SCPDURL>AVTransport/82d8-eb72-b097/scpd.xml</SCPDURL>
+                  <controlURL>AVTransport/82d8-eb72-b097/control</controlURL>
+                  <eventSubURL>AVTransport/82d8-eb72-b097/event</eventSubURL>
+                  </service>
+                  <service>
+                  <serviceType>urn:schemas-upnp-org:service:ConnectionManager:1</serviceType>
+                  <serviceId>urn:upnp-org:serviceId:ConnectionManager</serviceId>
+                  <SCPDURL>ConnectionManager/82d8-eb72-b097/scpd.xml</SCPDURL>
+                  <controlURL>ConnectionManager/82d8-eb72-b097/control</controlURL>
+                  <eventSubURL>ConnectionManager/82d8-eb72-b097/event</eventSubURL>
+                  </service>
+                  <service>
+                  <serviceType>urn:schemas-upnp-org:service:RenderingControl:1</serviceType>
+                  <serviceId>urn:upnp-org:serviceId:RenderingControl</serviceId>
+                  <SCPDURL>RenderingControl/82d8-eb72-b097/scpd.xml</SCPDURL>
+                  <controlURL>RenderingControl/82d8-eb72-b097/control</controlURL>
+                  <eventSubURL>RenderingControl/82d8-eb72-b097/event</eventSubURL>
+                  </service>
+              </serviceList>
+      </device>
+    </root>"""
+
+    friendly_name = app.config['FRIENDLY_NAME']
+    xml = desc_ptn.format(friendly_name)
     return Response(xml, mimetype="text/xml")
 
 def to_track_time(seconds):
@@ -261,8 +264,9 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(prog='tiny-dlna')
-    parser.add_argument('--http-log', action='store_true')
-    parser.add_argument('--verbose', '-v', action='store_true')
+    parser.add_argument('--http-log', action='store_true', help='Enable server logs')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Enable debug logs')
+    parser.add_argument('--name', type=str, default='Tiny Render', help='Change render name')
 
     args = parser.parse_args()
 
@@ -280,6 +284,10 @@ def main():
 
     ssdp = SSDPServer()
     ssdp.start()
+
+    friendly_name = args.name
+    app.config['FRIENDLY_NAME'] = friendly_name
+    logging.info(f'Starting DLNA Receiver: {friendly_name}')
     app.run(host="0.0.0.0", port=5000, debug=False)
 
 
