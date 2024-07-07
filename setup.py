@@ -28,7 +28,7 @@ Note: mpv needs to be installed on your system.
 
 setup(
     name='tiny-dlna',
-    version='0.4.0',
+    version='0.4.1',
     description='a tiny DLNA receiver',
     long_description=DESC,
     url='https://github.com/mitnk/tiny-dlna',
