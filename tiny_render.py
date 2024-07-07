@@ -1,4 +1,5 @@
 import html
+import logging
 import re
 import subprocess
 import threading
@@ -9,6 +10,7 @@ from flask import Flask, request, Response
 from ssdp import ssdp_listener
 
 app = Flask(__name__)
+logger = logging.getLogger('tiny_render')
 
 XML_AVSET_DONE = """
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
@@ -72,7 +74,9 @@ class MPVRenderer:
             cmd.append('--title={}'.format(title))
         if srt:
             cmd.append('--sub-file={}'.format(srt))
-        self.process = subprocess.Popen(cmd)
+
+        logger.debug(f'running mpv: {cmd}')
+        self.process = subprocess.Popen(cmd, stderr=subprocess.DEVNULL)
 
     def stop_media(self):
         if self.process:
@@ -152,6 +156,9 @@ def is_gettrans(request):
 def is_getpos(request):
     return b'u:GetPositionInfo' in request.data
 
+def is_seek(request):
+    return b'u:Seek' in request.data
+
 def get_title_re(xml_data):
     pattern = re.compile(r'<dc:title>(.*?)</dc:title>', re.DOTALL)
     match = pattern.search(xml_data)
@@ -163,15 +170,15 @@ def get_metadata(request):
     current_uri = root.find('.//CurrentURI').text
     metadata = root.find('.//CurrentURIMetaData').text
 
-    current_srt = None
-    title = None
+    current_srt = ''
+    title = ''
 
     metadata = html.unescape(metadata)
     try:
         metadata = ET.fromstring(metadata)
     except ET.ParseError:
         # HACK: fall back to `re` to get title only (e.g. Huya)
-        print('** got xml.ParseError, fall back to re')
+        logger.debug('** got xml.ParseError, fall back to re')
         title = get_title_re(metadata)
         return {'video': current_uri, 'title': title}
 
@@ -196,18 +203,15 @@ def get_metadata(request):
 def control():
     if is_setav(request):
         metadata = get_metadata(request)
-
         current_uri = metadata['video']
-        current_srt = metadata.get('srt')
-        video_title = metadata.get('title')
+        current_srt = metadata.get('srt', '')
+        video_title = metadata.get('title', '')
 
-        print('++ SetAV:', current_uri)
+        logger.debug(f'Action: SetAV: {current_uri}')
+        logger.debug(f'SRT: {current_srt}')
         _DATA['CURRENT_URI'] = current_uri
-        print('++ SRT:', current_srt)
-        if current_srt:
-            _DATA['CURRENT_SRT'] = current_srt
-        if video_title:
-            _DATA['VIDEO_TITLE'] = video_title
+        _DATA['CURRENT_SRT'] = current_srt
+        _DATA['VIDEO_TITLE'] = video_title
         return Response(XML_AVSET_DONE, mimetype="text/xml")
 
     elif is_play(request):
@@ -215,22 +219,24 @@ def control():
         url = _DATA['CURRENT_URI']
         srt = _DATA['CURRENT_SRT']
         title = _DATA['VIDEO_TITLE']
-        print('++ Playing', url)
+        logger.debug(f'action: Play: {url}')
+        logger.debug(f'title: {title} srt: {srt}')
         renderer.play_media(url, title, srt)
         return Response(XML_PLAY_DONE, mimetype="text/xml")
 
     elif is_getpos(request):
-        print('++ GetPositionInfo ++')
+        logger.debug('action: GetPositionInfo')
         seconds = int(time.time() - _DATA['STARTED_AT'])
         reltime = to_track_time(seconds)
         return Response(XML_POSINFO.format(reltime), mimetype="text/xml")
 
     elif is_gettrans(request):
-        print('++ GetTransportInfo ++')
+        logger.debug('action: GetTransportInfo')
         return Response(XML_TRANSINFO, mimetype="text/xml")
 
     elif is_stop(request):
-        print('\n+++ Stopping +++')
+        logger.debug('stopping')
+
         _DATA['CURRENT_URI'] = ''
         _DATA['CURRENT_SRT'] = ''
         _DATA['VIDEO_TITLE'] = ''
@@ -238,7 +244,11 @@ def control():
         renderer.stop_media()
         return Response(XML_STOP_DONE, mimetype="text/xml")
 
-    print(request.data)
+    elif is_seek(request):
+        logger.debug('seek')
+        return Response('To Seek', status=500)
+
+    logger.error(f'action not support: {request.data}')
     return Response('Action Not Supported', status=500)
 
 
@@ -248,9 +258,29 @@ class SSDPServer(threading.Thread):
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(prog='tiny-dlna')
+    parser.add_argument('--http-log', action='store_true')
+    parser.add_argument('--verbose', '-v', action='store_true')
+
+    args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format='[%(asctime)s][%(levelname)s] %(message)s',
+    )
+
+    if not args.http_log:
+        logging.getLogger('werkzeug').setLevel(logging.ERROR)
+        logging.getLogger('ssdp').setLevel(logging.ERROR)
+
+    if args.verbose:
+        logging.basicConfig(level=logging.DEBUG)
+
     ssdp = SSDPServer()
     ssdp.start()
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=False)
 
 
 if __name__ == "__main__":

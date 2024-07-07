@@ -1,3 +1,4 @@
 __pycache__/
+dist/
 tiny_dlna.egg-info/
 *.pyc

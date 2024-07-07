@@ -1,3 +1,4 @@
+import logging
 import socket
 
 SSDP_MULTICAST = '239.255.255.250'
@@ -17,6 +18,8 @@ ssdp_response = (
     '\r\n'
 )
 
+logger = logging.getLogger('ssdp')
+
 def ssdp_listener():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -29,7 +32,7 @@ def ssdp_listener():
     while True:
         data, addr = sock.recvfrom(1024)
         if b'M-SEARCH' in data and b'ssdp:discover' in data:
-            print(f'Received M-SEARCH from {addr}, sending response...')
+            logger.info(f'Received M-SEARCH from {addr}, sending response...')
             sock.sendto(ssdp_response.encode('utf-8'), addr)
 
 if __name__ == '__main__':
