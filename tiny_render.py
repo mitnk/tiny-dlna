@@ -8,11 +8,10 @@ import time
 import xml.etree.ElementTree as ET
 
 from flask import Flask, request, Response
-from tiny_ssdp import ssdp_listener, RENDER_PORT, UUID
+from tiny_ssdp import get_uuid, ssdp_listener, RENDER_PORT
 
 app = Flask(__name__)
 logger = logging.getLogger('tiny_render')
-
 
 XML_DESC_PTN = """<?xml version="1.0" encoding="UTF-8"?>
 <root xmlns:dlna="urn:schemas-dlna-org:device-1-0" xmlns="urn:schemas-upnp-org:device-1-0">
@@ -23,20 +22,32 @@ XML_DESC_PTN = """<?xml version="1.0" encoding="UTF-8"?>
   <device>
     <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
     <friendlyName>{}</friendlyName>
+    <UDN>uuid:{}</UDN>
     <manufacturer>mitnk</manufacturer>
     <modelName>Tiny-Render</modelName>
     <modelDescription>AVTransport Media Renderer</modelDescription>
-    <UDN>uuid:{}</UDN>
     <dlna:X_DLNADOC xmlns:dlna="urn:schemas-dlna-org:device-1-0">DMR-1.50</dlna:X_DLNADOC>
-      <serviceList>
-        <service>
+    <serviceList>
+      <service>
         <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
         <serviceId>urn:upnp-org:serviceId:AVTransport</serviceId>
-        <SCPDURL>AVTransport/scpd.xml</SCPDURL>
         <controlURL>AVTransport/control</controlURL>
-        <eventSubURL>AVTransport/event</eventSubURL>
-        </service>
-      </serviceList>
+      </service>
+      <service>
+        <serviceType>urn:schemas-upnp-org:service:RenderingControl:1</serviceType>
+        <serviceId>urn:upnp-org:serviceId:RenderingControl</serviceId>
+        <controlURL>RenderingControl/action</controlURL>
+        <eventSubURL>RenderingControl/event</eventSubURL>
+        <SCPDURL>dlna/RenderingControl.xml</SCPDURL>
+      </service>
+      <service>
+        <serviceType>urn:schemas-upnp-org:service:ConnectionManager:1</serviceType>
+        <serviceId>urn:upnp-org:serviceId:ConnectionManager</serviceId>
+        <controlURL>ConnectionManager/action</controlURL>
+        <eventSubURL>ConnectionManager/event</eventSubURL>
+        <SCPDURL>dlna/ConnectionManager.xml</SCPDURL>
+      </service>
+    </serviceList>
   </device>
 </root>"""
 
@@ -52,6 +63,14 @@ XML_PLAY_DONE = """
 <s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
   <s:Body>
     <u:PlayResponse xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"/>
+  </s:Body>
+</s:Envelope>
+"""
+
+XML_SEEK_DONE = """
+<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Body>
+    <u:SeekResponse xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"/>
   </s:Body>
 </s:Envelope>
 """
@@ -124,8 +143,11 @@ _DATA = {
 @app.route('/description.xml')
 def description():
     friendly_name = app.config['FRIENDLY_NAME']
-    xml = XML_DESC_PTN.format(friendly_name, UUID)
-    return Response(xml, mimetype="text/xml")
+    uuid_str = get_uuid()
+    xml = XML_DESC_PTN.format(friendly_name, uuid_str)
+    resp = Response(xml, mimetype="text/xml")
+    resp.headers['Server'] = 'UPnP/1.0 Werkzeug/3.0 TinyRender/0.6'
+    return resp
 
 def to_track_time(seconds):
     hours = seconds // 3600
@@ -237,8 +259,8 @@ def control():
         return Response(XML_STOP_DONE, mimetype="text/xml")
 
     elif is_seek(request):
-        logger.debug('seek')
-        return Response('To Seek', status=500)
+        logger.debug('action:seek')
+        return Response(XML_SEEK_DONE, mimetype="text/xml")
 
     logger.error(f'action not support: {request.data}')
     return Response('Action Not Supported', status=500)
@@ -251,23 +273,23 @@ class SSDPServer(threading.Thread):
 
 def main():
     parser = argparse.ArgumentParser(prog='tiny-render')
-    parser.add_argument('--http-log', action='store_true', help='Enable server logs')
+    parser.add_argument('--http-logs', action='store_true', help='Enable server logs')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable debug logs')
     parser.add_argument('--name', type=str, default='Tiny Render', help='Change render name')
 
     args = parser.parse_args()
 
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.ERROR,
         format='[%(asctime)s][%(levelname)s] %(message)s',
     )
 
-    if not args.http_log:
+    if not args.http_logs:
         logging.getLogger('werkzeug').setLevel(logging.ERROR)
-        logging.getLogger('ssdp').setLevel(logging.ERROR)
+        logging.getLogger('tiny_ssdp').setLevel(logging.ERROR)
 
     if args.verbose:
-        logging.basicConfig(level=logging.DEBUG)
+        logger.setLevel(logging.DEBUG)
 
     ssdp = SSDPServer()
     ssdp.start()
