@@ -27,7 +27,10 @@ $ ln -sf /Applications/mpv.app/Contents/MacOS/mpv /usr/local/bin/
 
 ## Tiny DLNA Cli
 
-To do.
+List available DLNA devices:
+```
+$ tiny-cli list
+```
 
 ## Related projects
 

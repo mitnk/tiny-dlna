@@ -1,3 +1,4 @@
+import argparse
 import html
 import logging
 import re
@@ -7,7 +8,7 @@ import time
 import xml.etree.ElementTree as ET
 
 from flask import Flask, request, Response
-from ssdp import ssdp_listener, RENDER_PORT, UUID
+from tiny_ssdp import ssdp_listener, RENDER_PORT, UUID
 
 app = Flask(__name__)
 logger = logging.getLogger('tiny_render')
@@ -249,8 +250,6 @@ class SSDPServer(threading.Thread):
 
 
 def main():
-    import argparse
-
     parser = argparse.ArgumentParser(prog='tiny-render')
     parser.add_argument('--http-log', action='store_true', help='Enable server logs')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable debug logs')

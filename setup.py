@@ -28,20 +28,22 @@ Note: mpv needs to be installed on your system.
 
 setup(
     name='tiny-dlna',
-    version='0.4.1',
+    version='0.5.2',
     description='a tiny DLNA receiver',
     long_description=DESC,
     url='https://github.com/mitnk/tiny-dlna',
     author='mitnk',
     license='MIT',
     keywords='dlna',
-    py_modules=["tiny_render", "ssdp"],
+    py_modules=["tiny_cli", "tiny_render", "tiny_ssdp"],
     entry_points={
         'console_scripts': [
             'tiny-render=tiny_render:main',
+            'tiny-cli=tiny_cli:main',
         ],
     },
     install_requires=[
         'flask>=3.0.0',
+        'psutil>=6.0.0',
     ],
 )

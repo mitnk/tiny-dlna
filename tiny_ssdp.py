@@ -1,21 +1,42 @@
 import datetime
 import logging
+import psutil
 import socket
+import uuid
 
-SSDP_MULTICAST = '239.255.255.250'
+SSDP_MULTICAST_IP = '239.255.255.250'
 SSDP_PORT = 1900
 RENDER_PORT = 55000
-LOCATION = f'http://192.168.1.228:{RENDER_PORT}/description.xml'
-UUID = 'd095ee0c-7bed-43d0-bf98-f815496e8383'
+UUID = f'{uuid.uuid4()}'
 logger = logging.getLogger('ssdp')
+
+
+def get_host_ip():
+    ips = []
+    interfaces = psutil.net_if_addrs()
+
+    for iface_name, iface_addresses in interfaces.items():
+        for address in iface_addresses:
+            if address.family == socket.AF_INET:
+                ip = address.address
+                if ip and not ip.startswith('127.'):
+                    ips.append(ip)
+
+    if len(ips) == 0:
+        logger.error('failed to find host IP.')
+
+    return ips[0]
+
 
 def build_m_search_response():
     now = datetime.datetime.utcnow()
     date_str = now.strftime("%a, %d %b %Y %H:%M:%S GMT")
+    host_ip = get_host_ip()
+    location = f'http://{host_ip}:{RENDER_PORT}/description.xml'
 
     text = 'HTTP/1.1 200 OK\r\n'
     text += f'USN: uuid:{UUID}::urn:schemas-upnp-org:service:AVTransport:1\r\n'
-    text += f'Location: {LOCATION}\r\n'
+    text += f'Location: {location}\r\n'
     text += 'ST: urn:schemas-upnp-org:service:AVTransport:1\r\n'
     text += 'EXT: \r\n'
     text += 'Server: Werkzeug/3.0.3 Python/3.11.0\r\n'
@@ -29,7 +50,7 @@ def ssdp_listener():
     sock.bind(('0.0.0.0', SSDP_PORT))
 
     # Join the SSDP multicast group
-    mreq = socket.inet_aton(SSDP_MULTICAST) + socket.inet_aton('0.0.0.0')
+    mreq = socket.inet_aton(SSDP_MULTICAST_IP) + socket.inet_aton('0.0.0.0')
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
 
     while True:
