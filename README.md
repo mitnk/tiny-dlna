@@ -16,10 +16,11 @@ $ tiny-render
 
 This will activate a DLNA receiver named "Tiny Render", which can stream videos
 from apps like 虎牙直播, Bilibili, and other video platforms. Additionally, you
-can also use `nano-dlna` to play local videos (like in your RaspberryPi) on it.
+can also use `tiny-cli play` (see below) to play local videos (like in your
+RaspberryPi) on it.
 
 Note that [mpv](https://mpv.io/) needs to be installed on your system. On Mac,
-do following (for Windows, add the mpv's root into PATH):
+do following (for Windows, add mpv's root into PATH):
 
 ```
 $ ln -sf /Applications/mpv.app/Contents/MacOS/mpv /usr/local/bin/
@@ -38,7 +39,7 @@ $ tiny-cli play ~/Movies/foo/bar.mp4 -q TV
 ```
 
 If there is a `bar.srt` in the same directory, it will be served as long as
-the DLNA device supports subtitles.
+the DLNA render supports subtitles.
 
 ## Dev
 
