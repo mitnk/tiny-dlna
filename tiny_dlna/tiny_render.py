@@ -8,107 +8,12 @@ import time
 import xml.etree.ElementTree as ET
 
 from flask import Flask, request, Response
-from tiny_ssdp import get_uuid, ssdp_listener, RENDER_PORT
+from .tiny_ssdp import get_uuid, ssdp_listener
+from .tiny_xmls import *  # NOQA
 
 app = Flask(__name__)
 logger = logging.getLogger('tiny_render')
 
-XML_DESC_PTN = """<?xml version="1.0" encoding="UTF-8"?>
-<root xmlns:dlna="urn:schemas-dlna-org:device-1-0" xmlns="urn:schemas-upnp-org:device-1-0">
-  <specVersion>
-    <major>1</major>
-    <minor>0</minor>
-  </specVersion>
-  <device>
-    <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
-    <friendlyName>{}</friendlyName>
-    <UDN>uuid:{}</UDN>
-    <manufacturer>mitnk</manufacturer>
-    <modelName>Tiny-Render</modelName>
-    <modelDescription>AVTransport Media Renderer</modelDescription>
-    <dlna:X_DLNADOC xmlns:dlna="urn:schemas-dlna-org:device-1-0">DMR-1.50</dlna:X_DLNADOC>
-    <serviceList>
-      <service>
-        <serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType>
-        <serviceId>urn:upnp-org:serviceId:AVTransport</serviceId>
-        <controlURL>AVTransport/control</controlURL>
-      </service>
-      <service>
-        <serviceType>urn:schemas-upnp-org:service:RenderingControl:1</serviceType>
-        <serviceId>urn:upnp-org:serviceId:RenderingControl</serviceId>
-        <controlURL>RenderingControl/action</controlURL>
-        <eventSubURL>RenderingControl/event</eventSubURL>
-        <SCPDURL>dlna/RenderingControl.xml</SCPDURL>
-      </service>
-      <service>
-        <serviceType>urn:schemas-upnp-org:service:ConnectionManager:1</serviceType>
-        <serviceId>urn:upnp-org:serviceId:ConnectionManager</serviceId>
-        <controlURL>ConnectionManager/action</controlURL>
-        <eventSubURL>ConnectionManager/event</eventSubURL>
-        <SCPDURL>dlna/ConnectionManager.xml</SCPDURL>
-      </service>
-    </serviceList>
-  </device>
-</root>"""
-
-XML_AVSET_DONE = """
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
-  <s:Body>
-    <u:SetAVTransportURIResponse xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"/>
-  </s:Body>
-</s:Envelope>
-"""
-
-XML_PLAY_DONE = """
-<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-  <s:Body>
-    <u:PlayResponse xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"/>
-  </s:Body>
-</s:Envelope>
-"""
-
-XML_SEEK_DONE = """
-<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-  <s:Body>
-    <u:SeekResponse xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"/>
-  </s:Body>
-</s:Envelope>
-"""
-
-XML_POSINFO = """
-<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-  <s:Body>
-    <u:GetPositionInfoResponse xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-      <Track>0</Track>
-      <TrackDuration>00:00:00</TrackDuration>
-      <RelTime>{0}</RelTime>
-      <AbsTime>{0}</AbsTime>
-      <RelCount>2147483647</RelCount>
-      <AbsCount>2147483647</AbsCount>
-    </u:GetPositionInfoResponse>
-  </s:Body>
-</s:Envelope>
-"""
-
-XML_TRANSINFO = """
-<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-  <s:Body>
-    <u:GetTransportInfoResponse xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
-      <CurrentTransportState>PLAYING</CurrentTransportState>
-      <CurrentTransportStatus>OK</CurrentTransportStatus>
-      <CurrentSpeed>1</CurrentSpeed>
-    </u:GetTransportInfoResponse>
-  </s:Body>
-</s:Envelope>
-"""
-
-XML_STOP_DONE = """
-<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-  <s:Body>
-    <u:StopResponse xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"/>
-  </s:Body>
-</s:Envelope>
-"""
 
 class MPVRenderer:
     def __init__(self):
@@ -140,14 +45,33 @@ _DATA = {
     'STARTED_AT': 0,
 }
 
+
 @app.route('/description.xml')
 def description():
     friendly_name = app.config['FRIENDLY_NAME']
     uuid_str = get_uuid()
     xml = XML_DESC_PTN.format(friendly_name, uuid_str)
     resp = Response(xml, mimetype="text/xml")
-    resp.headers['Server'] = 'UPnP/1.0 Werkzeug/3.0 TinyRender/0.6'
+    resp.headers['Server'] = 'UPnP/1.0 Werkzeug/3.0 TinyRender/0.7'
     return resp
+
+# these 3 dlna_ routings below are only here so that some dummy app
+# could treat our "tiny render" as a proper dlna device. (Mouyu ..)
+@app.route('/dlna/AVTransport.xml')
+def dlna_avtransport():
+    resp = Response(XML_DLNA_AVT, mimetype="text/xml")
+    return resp
+
+@app.route('/dlna/RenderingControl.xml')
+def dlna_render_control():
+    resp = Response(XML_DLNA_RENDER_CTRL, mimetype="text/xml")
+    return resp
+
+@app.route('/dlna/ConnectionManager.xml')
+def dlna_conn_manager():
+    resp = Response(XML_DLNA_CONN_MANAGER, mimetype="text/xml")
+    return resp
+
 
 def to_track_time(seconds):
     hours = seconds // 3600
@@ -155,11 +79,11 @@ def to_track_time(seconds):
     remaining_seconds = seconds % 60
     return f"{hours}:{minutes:02}:{remaining_seconds:02}"
 
-def is_stop(request):
-    return b'<u:Stop' in request.data
-
 def is_play(request):
     return b'<u:Play' in request.data
+
+def is_stop(request):
+    return b'<u:Stop' in request.data
 
 def is_setav(request):
     return b'SetAVTransportURI' in request.data
@@ -180,27 +104,35 @@ def get_title_re(xml_data):
         return match.group(1)
 
 def get_metadata(request):
-    root = ET.fromstring(request.data)
+    root = ET.fromstring(request.data.strip())
     current_uri = root.find('.//CurrentURI').text
     metadata = root.find('.//CurrentURIMetaData').text
+    if not metadata:
+        logger.debug('no metadata')
+        return {'video': current_uri, 'title': ''}
 
-    current_srt = ''
     title = ''
-
     metadata = html.unescape(metadata)
     try:
-        metadata = ET.fromstring(metadata)
+        # HACK: replace all `&` to `&amp;`
+        metadata = metadata.replace('&', '&amp;')
+        metadata = ET.fromstring(metadata.strip())
     except ET.ParseError:
         # HACK: fall back to `re` to get title only (e.g. Huya)
         logger.debug('** got xml.ParseError, fall back to re')
         title = get_title_re(metadata)
         return {'video': current_uri, 'title': title}
 
-    ns = {'dc': 'http://purl.org/dc/elements/1.1/'}
-    obj = metadata.find('.//dc:title', ns)
-    if obj:
+    ns = {
+        'dc': 'http://purl.org/dc/elements/1.1/',
+        '': 'urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/'
+    }
+    item = metadata.find('.//item', namespaces=ns)
+    obj = item.find('.//dc:title', namespaces=ns)
+    if obj is not None:
         title = obj.text
 
+    current_srt = ''
     for res in metadata.findall('.//{urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/}res'):
         if res.get('type') == 'text/subtitle':
             current_srt = res.text.strip()
@@ -209,7 +141,7 @@ def get_metadata(request):
     return {
         'video': current_uri,
         'srt': current_srt,
-        'title': current_srt,
+        'title': title,
     }
 
 
@@ -222,7 +154,7 @@ def control():
         video_title = metadata.get('title', '')
 
         logger.debug(f'Action: SetAV: {current_uri}')
-        logger.debug(f'SRT: {current_srt}')
+        logger.debug(f'Title: {video_title} SRT: {current_srt}')
         _DATA['CURRENT_URI'] = current_uri
         _DATA['CURRENT_SRT'] = current_srt
         _DATA['VIDEO_TITLE'] = video_title
@@ -234,11 +166,11 @@ def control():
         srt = _DATA['CURRENT_SRT']
         title = _DATA['VIDEO_TITLE']
         logger.debug(f'action: Play: {url}')
-        logger.debug(f'title: {title} srt: {srt}')
         renderer.play_media(url, title, srt)
         return Response(XML_PLAY_DONE, mimetype="text/xml")
 
     elif is_getpos(request):
+        # this is only a dummy impl; we need rpc to mpv process for real.
         logger.debug('action: GetPositionInfo')
         seconds = int(time.time() - _DATA['STARTED_AT'])
         reltime = to_track_time(seconds)
@@ -267,8 +199,12 @@ def control():
 
 
 class SSDPServer(threading.Thread):
+    def __init__(self, render_port):
+        super().__init__()
+        self.render_port = render_port
+
     def run(self):
-        ssdp_listener()
+        ssdp_listener(self.render_port)
 
 
 def main():
@@ -291,13 +227,14 @@ def main():
     if args.verbose:
         logger.setLevel(logging.DEBUG)
 
-    ssdp = SSDPServer()
+    port = 59876
+    ssdp = SSDPServer(port)
     ssdp.start()
 
     friendly_name = args.name
     app.config['FRIENDLY_NAME'] = friendly_name
     logging.info(f'Starting DLNA Receiver: {friendly_name}')
-    app.run(host="0.0.0.0", port=RENDER_PORT, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False)
 
 
 if __name__ == "__main__":

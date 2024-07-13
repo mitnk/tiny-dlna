@@ -8,7 +8,6 @@ import uuid
 
 SSDP_MULTICAST_IP = '239.255.255.250'
 SSDP_PORT = 1900
-RENDER_PORT = 55000
 logger = logging.getLogger('tiny_ssdp')
 ST_VALUE_MEDIARENDERER = 'mediarenderer'
 ST_VALUE_AVTRANSPORT = 'avtransport'
@@ -40,20 +39,22 @@ def get_host_ip():
         for address in iface_addresses:
             if address.family == socket.AF_INET:
                 ip = address.address
-                if ip and not ip.startswith('127.'):
+                if ip and ip.startswith('192.168.'):
                     ips.append(ip)
 
     if len(ips) == 0:
         logger.error('failed to find host IP.')
 
+    # use the smallest one, in case get like 192.168.65.1 (vm interfaces)
+    ips.sort()
     return ips[0]
 
 
-def build_m_search_response(st):
+def build_m_search_response(st, render_port):
     now = datetime.datetime.utcnow()
     date_str = now.strftime("%a, %d %b %Y %H:%M:%S GMT")
-    host_ip = get_host_ip()
-    location = f'http://{host_ip}:{RENDER_PORT}/description.xml'
+    render_ip = get_host_ip()
+    location = f'http://{render_ip}:{render_port}/description.xml'
     uuid_str = get_uuid()
 
     text = 'HTTP/1.1 200 OK\r\n'
@@ -76,7 +77,7 @@ def get_search_target(data):
     else:
         return ST_VALUE_AVTRANSPORT
 
-def ssdp_listener():
+def ssdp_listener(render_port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(('0.0.0.0', SSDP_PORT))
@@ -90,7 +91,4 @@ def ssdp_listener():
         if b'M-SEARCH' in data and b'ssdp:discover' in data:
             st = get_search_target(data)
             logger.info(f'Received M-SEARCH from {addr}, sending response...')
-            sock.sendto(build_m_search_response(st), addr)
-
-if __name__ == '__main__':
-    ssdp_listener()
+            sock.sendto(build_m_search_response(st, render_port), addr)
