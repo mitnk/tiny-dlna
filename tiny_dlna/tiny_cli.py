@@ -27,7 +27,7 @@ MSEARCH_MSG = (
     'ST: urn:schemas-upnp-org:service:AVTransport:1\r\n'
     '\r\n'
 )
-DIR_LINKS = '~/.config/tiny-dlna/symlinks'
+DIR_LINKS = os.path.join('~', '.config', 'tiny-dlna', 'symlinks')
 
 
 def _get_device_info(location):
@@ -171,10 +171,14 @@ def send_play(url_control):
 
 def send_stop(url_control):
     dir_links = os.path.expanduser(DIR_LINKS)
-    try:
-        shutil.rmtree(dir_links)
-    except:  # NOQA
-        pass
+    if not os.path.isdir(dir_links):
+        return
+
+    for item in os.listdir(dir_links):
+        item_path = os.path.join(dir_links, item)
+        if os.path.islink(item_path):
+            os.unlink(item_path)
+
     send_dlna_command(url_control, XML_STOP, 'Stop')
 
 
@@ -185,13 +189,10 @@ def create_link(path_file):
         os.makedirs(dir_links, exist_ok=True)
 
     path_link = os.path.join(dir_links, name_file)
-    if os.path.exists(path_link):
-        if os.path.islink(path_link):
-            os.remove(path_link)
-        else:
-            logger.error('failed to create softlink')
-            exit(1)
+    if os.path.islink(path_link):
+        os.unlink(path_link)
 
+    path_abs = os.path.abspath(path_file)
     os.symlink(path_file, path_link)
     logger.info(f'created softlink: {path_link}')
 
