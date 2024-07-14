@@ -3,7 +3,6 @@ import json
 import logging
 import os.path
 import random
-import shutil
 import signal
 import socket
 import threading
@@ -193,8 +192,8 @@ def create_link(path_file):
         os.unlink(path_link)
 
     path_abs = os.path.abspath(path_file)
-    os.symlink(path_file, path_link)
-    logger.info(f'created softlink: {path_link}')
+    os.symlink(path_abs, path_link)
+    logger.info(f'created softlink: {path_abs} --> {path_link}')
 
 
 def get_control_url(args):
