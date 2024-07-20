@@ -3,7 +3,7 @@ from setuptools import setup
 DESC = """
 Home Page: https://github.com/mitnk/tiny-dlna
 
-A tiny DLNA receiver.
+A tiny DLNA sender & receiver.
 
 Install
 -------
@@ -21,7 +21,7 @@ Usages
 
 This will activate a DLNA receiver named "Tiny Render", which can stream videos
 from apps like 虎牙直播, Bilibili, and other video platforms. Additionally, you
-can also use `nano-dlna` to play local videos (like in your RaspberryPi) on it.
+can also use `tiny-cli` to play local videos (like in your RaspberryPi) on it.
 
 Note: mpv needs to be installed on your system.
 
@@ -35,13 +35,13 @@ List available DLNA devices.
 
     $ tiny-cli play ~/Movies/foo/bar.mp4 -q 'TV'
 
-Play video on the DLNA device having "TV" in its name.
+Play a video on the DLNA device having "TV" in its name.
 """
 
 setup(
     name='tiny-dlna',
-    version='0.7.2',
-    description='a tiny DLNA receiver',
+    version='0.7.3',
+    description='a tiny DLNA sender & receiver',
     long_description=DESC,
     url='https://github.com/mitnk/tiny-dlna',
     author='mitnk',
