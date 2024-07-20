@@ -1,12 +1,14 @@
 # Tiny DLNA
 
+[![PyPI](https://img.shields.io/pypi/v/tiny-dlna.svg)](https://pypi.org/project/tiny-dlna/)
+
 ## Install
 
 ```
 $ pip install tiny-dlna
 ```
 
-## Tiny DLNA Render
+## Usage for Tiny DLNA Render
 
 Just to support subtitles.
 
@@ -19,7 +21,7 @@ from apps like 虎牙直播, Bilibili, and other video platforms. Additionally, 
 can also use `tiny-cli play` (see below) to play local videos (like in your
 RaspberryPi) on it.
 
-## Tiny DLNA Cli
+## Usage for Tiny DLNA Cli
 
 List available DLNA devices:
 ```
