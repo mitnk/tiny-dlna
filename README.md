@@ -21,6 +21,12 @@ from apps like 虎牙直播, Bilibili, and other video platforms. Additionally, 
 can also use `tiny-cli play` (see below) to play local videos (like in your
 RaspberryPi) on it.
 
+### Save video streaming into a file (Stream Recording)
+
+```
+$ tiny-render --dump-to ~/Movie/lol-msi-2024.mp4
+```
+
 ## Usage for Tiny DLNA Cli
 
 List available DLNA devices:

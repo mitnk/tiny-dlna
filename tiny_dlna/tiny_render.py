@@ -2,6 +2,7 @@ import argparse
 import html
 import logging
 import re
+import os.path
 import subprocess
 import threading
 import time
@@ -19,9 +20,13 @@ class MPVRenderer:
     def __init__(self):
         self.process = None
 
-    def play_media(self, url, title=None, srt=None):
+    def play_media(self, url, title=None, srt=None, dump_to=None):
         self.stop_media()  # Stop any existing media
         cmd = ['mpv', url]
+
+        if dump_to:
+            path_abs = os.path.abspath(dump_to)
+            cmd.append(f'--stream-record={path_abs}')
         if title:
             cmd.append('--title={}'.format(title))
         if srt:
@@ -42,6 +47,7 @@ _DATA = {
     'CURRENT_URI': '',
     'CURRENT_SRT': '',
     'VIDEO_TITLE': '',
+    'DUMP_TO': None,
     'STARTED_AT': 0,
 }
 
@@ -165,8 +171,9 @@ def control():
         url = _DATA['CURRENT_URI']
         srt = _DATA['CURRENT_SRT']
         title = _DATA['VIDEO_TITLE']
+        dump_to = _DATA['DUMP_TO']
         logger.debug(f'action: Play: {url}')
-        renderer.play_media(url, title, srt)
+        renderer.play_media(url, title, srt, dump_to)
         return Response(XML_PLAY_DONE, mimetype="text/xml")
 
     elif is_getpos(request):
@@ -212,6 +219,7 @@ def main():
     parser.add_argument('--http-logs', action='store_true', help='Enable server logs')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable debug logs')
     parser.add_argument('--name', type=str, default='Tiny Render', help='Change render name')
+    parser.add_argument('--dump-to', type=str, help='dump streaming to a file')
 
     args = parser.parse_args()
 
@@ -226,6 +234,9 @@ def main():
 
     if args.verbose:
         logger.setLevel(logging.DEBUG)
+
+    if args.dump_to:
+        _DATA['DUMP_TO'] = args.dump_to
 
     port = 59876
     ssdp = SSDPServer(port)
