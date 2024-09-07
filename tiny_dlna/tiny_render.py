@@ -3,6 +3,7 @@ import html
 import logging
 import re
 import os.path
+import signal
 import subprocess
 import threading
 import time
@@ -10,10 +11,12 @@ import xml.etree.ElementTree as ET
 
 from flask import Flask, request, Response
 from .tiny_ssdp import get_uuid, ssdp_listener
+from .tiny_ssdp import register_render, unregister_render
 from .tiny_xmls import *  # NOQA
 
 app = Flask(__name__)
 logger = logging.getLogger('tiny_render')
+PORT_DEFAULT = 59876
 
 
 class MPVRenderer:
@@ -32,7 +35,7 @@ class MPVRenderer:
         if srt:
             cmd.append('--sub-file={}'.format(srt))
 
-        logger.debug(f'running mpv: {cmd}')
+        logger.debug('running: {}'.format(' '.join(cmd)))
         self.process = subprocess.Popen(cmd, stderr=subprocess.DEVNULL)
 
     def stop_media(self):
@@ -55,7 +58,7 @@ _DATA = {
 @app.route('/description.xml')
 def description():
     friendly_name = app.config['FRIENDLY_NAME']
-    uuid_str = get_uuid()
+    uuid_str = get_uuid(app.config['PORT'])
     xml = XML_DESC_PTN.format(friendly_name, uuid_str)
     resp = Response(xml, mimetype="text/xml")
     resp.headers['Server'] = 'UPnP/1.0 Werkzeug/3.0 TinyRender/0.7'
@@ -167,6 +170,10 @@ def control():
         return Response(XML_AVSET_DONE, mimetype="text/xml")
 
     elif is_play(request):
+        if _DATA['STARTED_AT'] > 0 and _DATA['DUMP_TO']:
+            app.config['STOP'] = True
+            exit(0)
+
         _DATA['STARTED_AT'] = time.time()
         url = _DATA['CURRENT_URI']
         srt = _DATA['CURRENT_SRT']
@@ -190,6 +197,11 @@ def control():
     elif is_stop(request):
         logger.debug('stopping')
 
+        if _DATA['STARTED_AT'] > 0 and _DATA['DUMP_TO']:
+            app.config['STOP'] = True
+            logger.info('stopping the recorder as a whole')
+            exit(0)
+
         _DATA['CURRENT_URI'] = ''
         _DATA['CURRENT_SRT'] = ''
         _DATA['VIDEO_TITLE'] = ''
@@ -206,19 +218,59 @@ def control():
 
 
 class SSDPServer(threading.Thread):
-    def __init__(self, render_port):
+    def __init__(self):
         super().__init__()
-        self.render_port = render_port
 
     def run(self):
-        ssdp_listener(self.render_port)
+        while True:
+            try:
+                ssdp_listener()
+            except OSError:
+                # another SSDP Server is running
+                time.sleep(0.05)
+                continue
+            break
+
+
+def _get_friendly_name(args):
+    if not args.name:
+        return 'Tiny Recorder' if args.dump_to else 'Tiny Render'
+
+    if args.dump_to:
+        return args.name + f' (Recorder)'
+
+    return args.name
+
+
+def flask_app_monitor(uuid, port):
+    to_stop = app.config.get('STOP')
+    while app.config.get('STOP') is None:
+        time.sleep(0.05)
+
+    unregister_render(uuid)
+    logger.debug(f'unregistered render: {uuid}')
+    logger.info('killing render process. mpv process is left open')
+    pid = os.getpid()
+    os.kill(pid, signal.SIGTERM)
+
+
+def signal_handler(signal, frame):
+    logger.debug('got killing signal')
+    uuid = get_uuid(app.config['PORT'])
+    unregister_render(uuid)
+    logger.debug(f'unregistered render: {uuid}')
+    exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 
 def main():
     parser = argparse.ArgumentParser(prog='tiny-render')
     parser.add_argument('--http-logs', action='store_true', help='Enable server logs')
     parser.add_argument('--verbose', '-v', action='store_true', help='Enable debug logs')
-    parser.add_argument('--name', type=str, default='Tiny Render', help='Change render name')
+    parser.add_argument('--name', type=str, help='Specify render name')
+    parser.add_argument('--port', type=int, default=0, help='Server Port')
     parser.add_argument('--dump-to', type=str, help='dump streaming to a file')
 
     args = parser.parse_args()
@@ -234,18 +286,48 @@ def main():
 
     if args.verbose:
         logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
 
+    port = PORT_DEFAULT
     if args.dump_to:
-        _DATA['DUMP_TO'] = args.dump_to
+        file_dump = os.path.abspath(args.dump_to)
+        if os.path.exists(file_dump):
+            logger.error(f'target file exists: {file_dump}')
+            exit(1)
 
-    port = 59876
-    ssdp = SSDPServer(port)
+        _DATA['DUMP_TO'] = args.dump_to
+        port += 1
+
+    if args.port:
+        port = args.port
+
+    ssdp = SSDPServer()
     ssdp.start()
 
-    friendly_name = args.name
+    friendly_name = _get_friendly_name(args)
     app.config['FRIENDLY_NAME'] = friendly_name
-    logging.info(f'Starting DLNA Receiver: {friendly_name}')
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.config['PORT'] = port
+    logger.info(f'Starting DLNA Receiver: {friendly_name}')
+    if args.dump_to:
+        logger.info(f'Recording stream to {args.dump_to}')
+
+    uuid = get_uuid(port)
+    register_render(uuid, friendly_name, port)
+    logger.debug(f'registered render {uuid}')
+
+    app_server = threading.Thread(
+        target=app.run,
+        kwargs={'host': '0.0.0.0', 'port': port},
+    )
+    app_server.start()
+
+    thread = threading.Thread(
+        target=flask_app_monitor,
+        kwargs={'uuid': uuid, 'port': port},
+    )
+    thread.start()
+    thread.join()
 
 
 if __name__ == "__main__":

@@ -9,26 +9,84 @@ import uuid
 SSDP_MULTICAST_IP = '239.255.255.250'
 SSDP_PORT = 1900
 logger = logging.getLogger('tiny_ssdp')
+logger.setLevel(logging.DEBUG)
+
 ST_VALUE_MEDIARENDERER = 'mediarenderer'
 ST_VALUE_AVTRANSPORT = 'avtransport'
 
 
-def get_uuid():
+def get_config_file(file_name):
     home_dir = os.path.expanduser('~')
     app_data_dir = os.path.join(home_dir, '.config', 'tiny-dlna')
     os.makedirs(app_data_dir, exist_ok=True)
-    config_file = os.path.join(app_data_dir, 'tiny-render.json')
+    return os.path.join(app_data_dir, file_name)
 
+
+def register_render(uuid, name, port):
+    config_file = get_config_file('live-renders.json')
+    data = {'renders': []}
+    if os.path.exists(config_file):
+        with open(config_file) as f:
+            data = json.load(f)
+
+    found = False
+    for render in data.get('renders', []):
+        if render['uuid'] == uuid:
+            found = True
+            break
+
+    if found:
+        return
+
+    if 'renders' not in data:
+        data['renders'] = []
+
+    data['renders'].append({'uuid': uuid, 'name': name, 'port': port})
+    with open(config_file, 'w') as f:
+        json.dump(data, f, sort_keys=True, indent=4)
+
+
+def unregister_render(uuid):
+    config_file = get_config_file('live-renders.json')
+    if os.path.exists(config_file):
+        with open(config_file) as f:
+            data = json.load(f)
+    else:
+        data = {'renders': []}
+
+    if 'renders' not in data:
+        return
+
+    found = False
+    others = []
+    for render in data.get('renders', []):
+        if render['uuid'] == uuid:
+            found = True
+        else:
+            others.append(render)
+
+    if not found:
+        return
+
+    data = {'renders': others}
+    with open(config_file, 'w') as f:
+        json.dump(data, f, sort_keys=True, indent=4)
+
+
+def get_uuid(port):
+    config_file = get_config_file('tiny-render.json')
     if os.path.exists(config_file):
         with open(config_file) as f:
             configs = json.load(f)
             if 'UUID' in configs and configs['UUID']:
-                return configs['UUID']
+                return configs['UUID'] + f'-{port}'
 
-    uuid_str = f'{uuid.uuid4()}'
+    uuid_str = str(uuid.uuid4()).rsplit('-', 1)[0]
     with open(config_file, 'w') as f:
         configs = {'UUID': uuid_str}
         json.dump(configs, f)
+
+    return uuid_str + f'-{port}'
 
 
 def get_host_ip():
@@ -55,7 +113,7 @@ def build_m_search_response(st, render_port):
     date_str = now.strftime("%a, %d %b %Y %H:%M:%S GMT")
     render_ip = get_host_ip()
     location = f'http://{render_ip}:{render_port}/description.xml'
-    uuid_str = get_uuid()
+    uuid_str = get_uuid(render_port)
 
     text = 'HTTP/1.1 200 OK\r\n'
     if st == ST_VALUE_MEDIARENDERER:
@@ -71,16 +129,29 @@ def build_m_search_response(st, render_port):
     text += f'Date: {date_str}\r\n\r\n'
     return text.encode('utf-8')
 
+
 def get_search_target(data):
     if b':device:MediaRenderer:1' in data:
         return ST_VALUE_MEDIARENDERER
     else:
         return ST_VALUE_AVTRANSPORT
 
-def ssdp_listener(render_port):
+
+def _get_live_render_ports():
+    config_file = get_config_file('live-renders.json')
+    if not os.path.exists(config_file):
+        return []
+
+    with open(config_file) as f:
+        configs = json.load(f)
+        return [x['port'] for x in configs.get('renders', [])]
+
+
+def ssdp_listener():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(('0.0.0.0', SSDP_PORT))
+    logger.debug(f'SSDP server running at {SSDP_PORT}')
 
     # Join the SSDP multicast group
     mreq = socket.inet_aton(SSDP_MULTICAST_IP) + socket.inet_aton('0.0.0.0')
@@ -91,4 +162,5 @@ def ssdp_listener(render_port):
         if b'M-SEARCH' in data and b'ssdp:discover' in data:
             st = get_search_target(data)
             logger.info(f'Received M-SEARCH from {addr}, sending response...')
-            sock.sendto(build_m_search_response(st, render_port), addr)
+            for render_port in _get_live_render_ports():
+                sock.sendto(build_m_search_response(st, render_port), addr)

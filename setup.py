@@ -40,7 +40,7 @@ Play a video on the DLNA device having "TV" in its name.
 
 setup(
     name='tiny-dlna',
-    version='0.8.0',
+    version='0.9.0',
     description='a tiny DLNA sender & receiver',
     long_description=DESC,
     url='https://github.com/mitnk/tiny-dlna',

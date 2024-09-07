@@ -13,6 +13,7 @@ import xml.etree.ElementTree as ET
 
 from flask import Flask, send_from_directory
 from xml.sax.saxutils import escape as xmlescape
+from urllib.error import URLError
 from .tiny_ssdp import SSDP_MULTICAST_IP, SSDP_PORT, get_host_ip
 from .tiny_xmls import *  # NOQA
 
@@ -104,7 +105,12 @@ def get_dlna_devices():
     while True:
         try:
             data, addr = sock.recvfrom(1024)
-            device = _parse_ssdp_response(data.decode('utf-8'))
+            try:
+                device = _parse_ssdp_response(data.decode('utf-8'))
+            except URLError:
+                # render url does not respond
+                continue
+
             location = device.get('location')
             logger.debug(f'got reply from {addr}, Location: {location}')
             if device and location not in known_locations:
