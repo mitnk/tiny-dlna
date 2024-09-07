@@ -157,8 +157,13 @@ def send_dlna_command(url_control, action_body, action_name):
     post(url_control, action_body, headers)
 
 
-def send_set_av_transport(url_control, url_video, url_srt=None):
-    title = url_video.split('/')[-1]
+def send_set_av_transport(url_control, url_video, url_srt=None, title=None):
+    url_video = url_video.replace('&', '&amp;')
+    if 'http://192.168' in url_video:
+        title = title or url_video.split('/')[-1]
+    else:
+        title = title or 'online stream'
+
     meta_items = XML_VIDEO.format(title=title)
     if url_srt:
         meta_items += XML_SUBTITLE.format(url_srt=url_srt)
@@ -209,21 +214,37 @@ def get_control_url(args):
             return d.get('control_url')
 
 
+def play_online_stream(url_control, url_stream):
+    send_set_av_transport(url_control, url_stream)
+    send_play(url_control)
+
+    def signal_handler(sig, frame):
+        send_stop(url_control)
+        exit(0)
+    signal.signal(signal.SIGINT, signal_handler)
+
+    while True:
+        time.sleep(1)
+
+
 def play_video(args):
     path_video = args.video_file
-    if not os.path.isfile(path_video):
-        print(f'no such file: {path_video}')
-        exit(0)
-
     url_control = get_control_url(args)
     if not url_control:
         print('no such DLNA device found')
         exit(0)
 
+    if path_video.startswith('http://') or path_video.startswith('https://'):
+        return play_online_stream(url_control, path_video)
+
+    if not os.path.isfile(path_video):
+        print(f'no such file: {path_video}')
+        exit(0)
+
     ip = get_host_ip()
     port = random.randint(50000, 58999)
 
-    logger.info(f'play video file: {path_video}')
+    logger.info(f'play video: {path_video}')
     create_link(path_video)
     name_video = os.path.basename(path_video)
     url_video = f"http://{ip}:{port}/videos/{name_video}"
