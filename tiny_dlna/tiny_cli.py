@@ -97,7 +97,7 @@ def get_dlna_devices():
     sock.settimeout(1.2)
 
     # Send the M-SEARCH message to the SSDP multicast address
-    logger.debug("Sending M-SEARCH...")
+    # logger.debug("Sending M-SEARCH...")
     sock.sendto(MSEARCH_MSG.encode('utf-8'), (SSDP_MULTICAST_IP, SSDP_PORT))
 
     devices = []
@@ -112,7 +112,7 @@ def get_dlna_devices():
                 continue
 
             location = device.get('location')
-            logger.debug(f'got reply from {addr}, Location: {location}')
+            # logger.debug(f'got reply from {addr}, Location: {location}')
             if device and location not in known_locations:
                 devices.append(device)
                 known_locations.add(location)
@@ -127,10 +127,36 @@ def list_dlna_devices():
     print(json.dumps({'devices': devices}, sort_keys=True, indent=2))
 
 
+def stop_dlna_render(args):
+    url_control, names = get_control_url(args)
+    if not url_control:
+        logger.error(f'No such device found: {args.query}')
+        logger.error('Available names: {}'.format(', '.join(names)))
+        exit(1)
+
+    logger.debug(f'Stopping streaming on DLNA: {url_control}')
+    send_dlna_command(url_control, XML_STOP, 'Stop')
+
+
+def seek_dlna_render(args):
+    url_control, names = get_control_url(args)
+    if not url_control:
+        logger.error(f'No such device found: {args.query}')
+        logger.error('Available names: {}'.format(', '.join(names)))
+        exit(1)
+
+    logger.debug(f'Seek streaming to {args.to}: {url_control}')
+    xml = XML_SEEK_PTN.format(args.to)
+    send_dlna_command(url_control, xml, 'Seek')
+
+
 def post(url, action_data, headers):
     action_data = action_data.encode("utf-8")
     r = urlreq.Request(url, action_data, headers)
-    urlreq.urlopen(r)
+    try:
+        urlreq.urlopen(r)
+    except Exception as e:
+        logger.error('{}: {}'.format(e.__class__.__name__, e))
     logging.debug("Request sent")
 
 
@@ -209,9 +235,15 @@ def create_link(path_file):
 
 def get_control_url(args):
     devices = get_dlna_devices()
+    url = None
+    other_names = []
     for d in devices:
         if args.query.lower() in d['friendly_name'].lower():
-            return d.get('control_url')
+            url = d.get('control_url')
+        else:
+            other_names.append(d.get('friendly_name', 'no-name'))
+
+    return url, other_names
 
 
 def play_online_stream(url_control, url_stream):
@@ -229,9 +261,10 @@ def play_online_stream(url_control, url_stream):
 
 def play_video(args):
     path_video = args.video_file
-    url_control = get_control_url(args)
+    url_control, names = get_control_url(args)
     if not url_control:
-        print('no such DLNA device found')
+        logger.error(f'no such DLNA device found: {args.query}')
+        logger.error('Available names: {}'.format(', '.join(names)))
         exit(0)
 
     if path_video.startswith('http://') or path_video.startswith('https://'):
@@ -284,15 +317,35 @@ def main():
         format='[%(asctime)s][%(levelname)s] %(message)s',
     )
 
+    version_file = os.path.join(os.path.dirname(__file__), 'version')
+    with open(version_file, 'r') as f:
+        version = f.read().strip()
+
     parser = argparse.ArgumentParser(prog='tiny-cli')
+    parser.add_argument('--version', action='version', version=f'v{version}')
+
     subparsers = parser.add_subparsers(dest='command', required=True,
                                        help='Choose a command')
 
-    greet_parser = subparsers.add_parser('list', help='List available DLNA devices')
-    greet_parser.add_argument('-v', dest='verbose', action='store_true',
+    list_parser = subparsers.add_parser('list', help='List available DLNA devices')
+    list_parser.add_argument('-v', dest='verbose', action='store_true',
                               help='Enable verbose logs')
 
-    play_parser = subparsers.add_parser('play', help='Play via via DLNA device')
+    stop_parser = subparsers.add_parser('stop', help='Stop DLNA streaming')
+    stop_parser.add_argument('-v', dest='verbose', action='store_true',
+                              help='Enable verbose logs')
+    stop_parser.add_argument('-q', dest='query', type=str, required=True,
+                             help='Specify Device by Friendly Name')
+
+    seek_parser = subparsers.add_parser('seek', help='Seek DLNA streaming')
+    seek_parser.add_argument('-v', dest='verbose', action='store_true',
+                              help='Enable verbose logs')
+    seek_parser.add_argument('-q', dest='query', type=str, required=True,
+                             help='Specify Device by Friendly Name')
+    seek_parser.add_argument('to', type=str,
+                             help='Specify the new time point, format: HH:MM:SS')
+
+    play_parser = subparsers.add_parser('play', help='Play via DLNA device')
     play_parser.add_argument('video_file')
     play_parser.add_argument('-v', dest='verbose', action='store_true',
                              help='Enable verbose logs')
@@ -305,6 +358,10 @@ def main():
 
     if args.command == 'list':
         list_dlna_devices()
+    elif args.command == 'stop':
+        stop_dlna_render(args)
+    elif args.command == 'seek':
+        seek_dlna_render(args)
     elif args.command == 'play':
         if not args.verbose:
             logging.getLogger('werkzeug').setLevel(logging.ERROR)

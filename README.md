@@ -42,6 +42,16 @@ $ tiny-cli play ~/Movies/foo/bar.mp4 -q TV
 If there is a `bar.srt` in the same directory, it will be served as long as
 the DLNA render supports subtitles.
 
+Stop the streaming on a device:
+```
+$ tiny-cli stop -q TV
+```
+
+When a video is playing, you can issue a `seek` command to adjust its postion:
+```
+$ tiny-cli seek '00:17:25' -q TV
+```
+
 ## Requirements for your System
 
 ### For Render
@@ -79,11 +89,6 @@ guess.
 $ python -m tiny_dlna.tiny_cli -h
 $ python -m tiny_dlna.tiny_render -h
 ```
-
-### More DLNA Actions, like Seek/Pause?
-
-This repository will be kept minimal. For additional DLNA actions, consider
-forking it.
 
 ## Related projects
 

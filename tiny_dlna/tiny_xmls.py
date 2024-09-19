@@ -58,6 +58,20 @@ XML_STOP = """<?xml version='1.0' encoding='utf-8'?>
 </s:Envelope>
 """
 
+XML_SEEK_PTN = """<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope
+    xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+    s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+  <s:Body>
+    <u:Seek xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+      <InstanceID>0</InstanceID>
+      <Unit>REL_TIME</Unit>
+      <Target>{}</Target>
+    </u:Seek>
+  </s:Body>
+</s:Envelope>
+"""
+
 XML_DESC_PTN = """<?xml version="1.0" encoding="UTF-8"?>
 <root xmlns:dlna="urn:schemas-dlna-org:device-1-0" xmlns="urn:schemas-upnp-org:device-1-0">
   <specVersion>

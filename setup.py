@@ -37,10 +37,14 @@ List available DLNA devices.
 
 Play a video on the DLNA device having "TV" in its name.
 """
+version_file = os.path.join(os.path.dirname(__file__), 'tiny_dlna', 'version')
+with open(version_file, 'r') as f:
+    version = f.read().strip()
+
 
 setup(
     name='tiny-dlna',
-    version='0.10.0',
+    version=version,
     description='a tiny DLNA sender & receiver',
     long_description=DESC,
     url='https://github.com/mitnk/tiny-dlna',
@@ -48,6 +52,7 @@ setup(
     license='MIT',
     keywords='dlna',
     packages=['tiny_dlna'],
+    package_data={'': ['version']},
     package_dir={'tiny_dlna': 'tiny_dlna'},
     entry_points={
         'console_scripts': [
