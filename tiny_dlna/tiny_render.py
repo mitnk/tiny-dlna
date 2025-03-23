@@ -25,7 +25,7 @@ class MPVRenderer:
 
     def play_media(self, url, title=None, srt=None, dump_to=None):
         self.stop_media()  # Stop any existing media
-        cmd = ['mpv', url]
+        cmd = ['mpv', '--quiet', '--no-terminal', url]
 
         if dump_to:
             path_abs = os.path.abspath(dump_to)

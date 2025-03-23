@@ -124,7 +124,7 @@ def get_dlna_devices():
 
 def list_dlna_devices():
     devices = get_dlna_devices()
-    print(json.dumps({'devices': devices}, sort_keys=True, indent=2))
+    print(json.dumps({'devices': devices}, ensure_ascii=False, sort_keys=True, indent=2))
 
 
 def stop_dlna_render(args):
