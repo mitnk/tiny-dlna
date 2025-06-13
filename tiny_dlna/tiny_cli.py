@@ -55,6 +55,7 @@ def _get_device_info(location):
         if elem:
             control_url = elem.find('controlURL', namespaces).text
             if control_url:
+                control_url = control_url.lstrip('/')
                 attrs['control_url'] = f'http://{p.hostname}:{p.port}/{control_url}'
 
     return attrs
