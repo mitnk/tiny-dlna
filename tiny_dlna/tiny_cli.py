@@ -52,7 +52,7 @@ def _get_device_info(location):
             ".//service[serviceId='urn:upnp-org:serviceId:AVTransport']",
             namespaces=namespaces,
         )
-        if elem:
+        if elem is not None:
             control_url = elem.find('controlURL', namespaces).text
             if control_url:
                 control_url = control_url.lstrip('/')
@@ -167,6 +167,9 @@ app = Flask(__name__)
 @app.route('/videos/<name_video>')
 def serve_video(name_video):
     dir_base = os.path.expanduser(DIR_LINKS)
+    # Ensure proper MIME type for subtitle files
+    if name_video.endswith('.srt'):
+        return send_from_directory(dir_base, name_video, mimetype='text/srt')
     return send_from_directory(dir_base, name_video)
 
 
@@ -191,10 +194,15 @@ def send_set_av_transport(url_control, url_video, url_srt=None, title=None):
     else:
         title = title or 'online stream'
 
-    meta_items = XML_VIDEO.format(title=title)
+    subtitle = ''
     if url_srt:
-        meta_items += XML_SUBTITLE.format(url_srt=url_srt)
-    metadata = XML_META.format(items=meta_items)
+        subtitle = XML_SUBTITLE.format(url_srt=url_srt)
+
+    metadata = XML_META.format(
+        title=title,
+        url_video=url_video,
+        subtitle=subtitle,
+    )
     xml = XML_SETAV.format(
         url_video=url_video,
         metadata=xmlescape(metadata),

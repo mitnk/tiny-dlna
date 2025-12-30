@@ -89,8 +89,3 @@ guess.
 $ python -m tiny_dlna.tiny_cli -h
 $ python -m tiny_dlna.tiny_render -h
 ```
-
-## Related projects
-
-- https://github.com/xfangfang/Macast
-- https://github.com/gabrielmagno/nano-dlna

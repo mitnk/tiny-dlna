@@ -1,23 +1,21 @@
 XML_META = """
 <DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/"
   xmlns:dc="http://purl.org/dc/elements/1.1/"
-  xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">
-  {items}
+  xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"
+  xmlns:sec="http://www.sec.co.kr/"
+  xmlns:pv="http://www.pv.com/pvns/">
+  <item id="0" parentID="-1" restricted="false">
+    <dc:title>{title}</dc:title>
+    <upnp:class>object.item.videoItem</upnp:class>
+    <res protocolInfo="http-get:*:video/mp4:DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01700000000000000000000000000000">{url_video}</res>{subtitle}
+  </item>
 </DIDL-Lite>"""
 
-XML_VIDEO = """
-<item id="video" parentID="0" restricted="0">
-  <dc:title>{title}</dc:title>
-  <upnp:class>object.item.videoItem</upnp:class>
-</item>
-"""
-
 XML_SUBTITLE = """
-<item id="subtitle" parentID="0" restricted="0">
-  <upnp:class>object.item.captionItem</upnp:class>
-  <res protocolInfo="http-get:*:text/srt:*" type="text/subtitle">{url_srt}</res>
-</item>
-"""
+    <res protocolInfo="http-get:*:text/srt:*">{url_srt}</res>
+    <sec:CaptionInfo sec:type="srt">{url_srt}</sec:CaptionInfo>
+    <sec:CaptionInfoEx sec:type="srt">{url_srt}</sec:CaptionInfoEx>
+    <pv:subtitleFileUri>{url_srt}</pv:subtitleFileUri>"""
 
 XML_SETAV = """<?xml version='1.0' encoding='utf-8'?>
 <s:Envelope

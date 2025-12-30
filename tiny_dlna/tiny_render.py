@@ -142,10 +142,28 @@ def get_metadata(request):
         title = obj.text
 
     current_srt = ''
-    for res in metadata.findall('.//{urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/}res'):
-        if res.get('type') == 'text/subtitle':
-            current_srt = res.text.strip()
-            break
+    # Try sec:CaptionInfoEx first (Samsung standard, widely supported)
+    elem = item.find('.//{http://www.sec.co.kr/}CaptionInfoEx')
+    if elem is not None and elem.text:
+        current_srt = elem.text.strip()
+    # Try sec:CaptionInfo
+    if not current_srt:
+        elem = item.find('.//{http://www.sec.co.kr/}CaptionInfo')
+        if elem is not None and elem.text:
+            current_srt = elem.text.strip()
+    # Try pv:subtitleFileUri (Panasonic)
+    if not current_srt:
+        elem = item.find('.//{http://www.pv.com/pvns/}subtitleFileUri')
+        if elem is not None and elem.text:
+            current_srt = elem.text.strip()
+    # Try res with subtitle type or srt protocolInfo
+    if not current_srt:
+        for res in metadata.findall('.//{urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/}res'):
+            proto = res.get('protocolInfo', '')
+            if res.get('type') == 'text/subtitle' or 'text/srt' in proto:
+                if res.text:
+                    current_srt = res.text.strip()
+                    break
 
     return {
         'video': current_uri,
