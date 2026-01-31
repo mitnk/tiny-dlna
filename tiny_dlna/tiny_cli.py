@@ -190,7 +190,7 @@ def send_dlna_command(url_control, action_body, action_name):
 def send_set_av_transport(url_control, url_video, url_srt=None, title=None):
     url_video = url_video.replace('&', '&amp;')
     if 'http://192.168' in url_video:
-        title = title or url_video.split('/')[-1]
+        title = title or urllib.parse.unquote(url_video.split('/')[-1])
     else:
         title = title or 'online stream'
 
@@ -289,13 +289,13 @@ def play_video(args):
     logger.info(f'play video: {path_video}')
     create_link(path_video)
     name_video = os.path.basename(path_video)
-    url_video = f"http://{ip}:{port}/videos/{name_video}"
+    url_video = f"http://{ip}:{port}/videos/{urllib.parse.quote(name_video)}"
 
     path_srt = '.'.join(path_video.split('.')[:-1]) + '.srt'
     if os.path.exists(path_srt):
         create_link(path_srt)
         name_srt = os.path.basename(path_srt)
-        url_srt = f"http://{ip}:{port}/videos/{name_srt}"
+        url_srt = f"http://{ip}:{port}/videos/{urllib.parse.quote(name_srt)}"
     else:
         path_srt = None
         url_srt = None
