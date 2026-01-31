@@ -44,7 +44,7 @@ with open(version_file, 'r') as f:
 
 
 setup(
-    name='tiny-dlna',
+    name='tiny_dlna',
     version=version,
     description='a tiny DLNA sender & receiver',
     long_description=DESC,
