@@ -255,8 +255,8 @@ def get_control_url(args):
     return url, other_names
 
 
-def play_online_stream(url_control, url_stream):
-    send_set_av_transport(url_control, url_stream)
+def play_online_stream(url_control, url_stream, title=None):
+    send_set_av_transport(url_control, url_stream, title=title)
     send_play(url_control)
 
     def signal_handler(sig, frame):
@@ -277,7 +277,7 @@ def play_video(args):
         exit(0)
 
     if path_video.startswith('http://') or path_video.startswith('https://'):
-        return play_online_stream(url_control, path_video)
+        return play_online_stream(url_control, path_video, title=args.title)
 
     if not os.path.isfile(path_video):
         print(f'no such file: {path_video}')
@@ -307,7 +307,7 @@ def play_video(args):
     # Give some time for the server to start
     time.sleep(1.6)
 
-    send_set_av_transport(url_control, url_video, url_srt)
+    send_set_av_transport(url_control, url_video, url_srt, title=args.title)
     send_play(url_control)
 
     def signal_handler(sig, frame):
@@ -360,6 +360,8 @@ def main():
                              help='Enable verbose logs')
     play_parser.add_argument('-q', dest='query', type=str, required=True,
                              help='Specify Device by Friendly Name')
+    play_parser.add_argument('--title', dest='title', type=str, default=None,
+                             help='Override the title')
 
     args = parser.parse_args()
     if args.verbose:
