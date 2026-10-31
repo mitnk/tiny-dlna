@@ -5,7 +5,7 @@ A tiny DLNA sender & receiver.
 ## Install
 
 ```
-$ cargo install --path .
+$ cargo install -f tiny-dlna
 ```
 
 This installs two binaries: `tiny-render` and `tiny-cli`.
