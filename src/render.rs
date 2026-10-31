@@ -1,13 +1,15 @@
-//! `tiny-render`: a DLNA media renderer that plays streams with mpv.
+//! `tiny-render`: a DLNA media renderer that plays streams with mpv, or
+//! records them with mpv or ffmpeg (ffmpeg needs no display).
 
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::process::{self, Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::thread;
 use std::time::Instant;
 
 use clap::Parser;
-use log::{LevelFilter, debug, error, info};
+use log::{LevelFilter, debug, error, info, warn};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 use crate::{HTTP_LOG, config, ssdp, xml};
@@ -37,6 +39,78 @@ struct Args {
     /// Dump streaming to a file (stream recording)
     #[arg(long, value_name = "FILE")]
     dump_to: Option<PathBuf>,
+    /// Record with ffmpeg instead of mpv, without a window (the default when
+    /// there is no display or mpv is missing)
+    #[arg(long, requires = "dump_to")]
+    headless: bool,
+}
+
+/// The program that plays or records the stream.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Backend {
+    /// Plays in a window; records while playing with `--stream-record`.
+    Mpv,
+    /// Copies the stream into the file without decoding it. Recording only.
+    Ffmpeg,
+}
+
+impl Backend {
+    fn program(self) -> &'static str {
+        match self {
+            Backend::Mpv => "mpv",
+            Backend::Ffmpeg => "ffmpeg",
+        }
+    }
+}
+
+fn pick_backend(recording: bool, headless: bool, display: bool, has_mpv: bool) -> Backend {
+    if recording && (headless || !display || !has_mpv) {
+        Backend::Ffmpeg
+    } else {
+        Backend::Mpv
+    }
+}
+
+/// Whether a GUI can be shown. Only X11/Wayland systems can lack one.
+fn has_display() -> bool {
+    if cfg!(any(windows, target_os = "macos")) {
+        return true;
+    }
+    ["DISPLAY", "WAYLAND_DISPLAY"]
+        .iter()
+        .any(|v| std::env::var_os(v).is_some_and(|s| !s.is_empty()))
+}
+
+fn in_path(program: &str) -> bool {
+    let exe = format!("{program}{}", std::env::consts::EXE_SUFFIX);
+    std::env::var_os("PATH")
+        .is_some_and(|paths| std::env::split_paths(&paths).any(|dir| dir.join(&exe).is_file()))
+}
+
+/// PID of the running ffmpeg recorder (0 if none), for the signal handler.
+static FFMPEG_PID: AtomicU32 = AtomicU32::new(0);
+/// Set once we asked ffmpeg to stop.
+static FFMPEG_STOPPING: AtomicBool = AtomicBool::new(false);
+
+/// Ask a running ffmpeg recorder to finish the file and quit. False if
+/// there's none.
+#[cfg(unix)]
+fn stop_ffmpeg() -> bool {
+    let pid = FFMPEG_PID.swap(0, Ordering::SeqCst);
+    if pid == 0 {
+        return false;
+    }
+    FFMPEG_STOPPING.store(true, Ordering::SeqCst);
+    unsafe {
+        libc::kill(pid as libc::pid_t, libc::SIGTERM);
+    }
+    true
+}
+
+/// Elsewhere ffmpeg shares our console and gets the Ctrl-C itself.
+#[cfg(not(unix))]
+fn stop_ffmpeg() -> bool {
+    false
 }
 
 fn friendly_name(name: Option<&str>, recording: bool) -> String {
@@ -85,6 +159,20 @@ pub fn main() {
         }
     };
 
+    let backend = pick_backend(
+        dump_to.is_some(),
+        args.headless,
+        has_display(),
+        in_path("mpv"),
+    );
+    if !in_path(backend.program()) {
+        if backend == Backend::Ffmpeg {
+            error!("ffmpeg is required for headless recording, but not found in PATH");
+            process::exit(1);
+        }
+        warn!("mpv not found in PATH");
+    }
+
     let name = friendly_name(args.name.as_deref(), dump_to.is_some());
     let uuid = config::render_uuid(port);
     {
@@ -92,6 +180,12 @@ pub fn main() {
         ctrlc::set_handler(move || {
             debug!("got killing signal");
             config::unregister_render(&uuid);
+            // Let ffmpeg finish the file; we exit once it's done. Another
+            // signal exits right away.
+            if stop_ffmpeg() {
+                info!("finishing the recording...");
+                return;
+            }
             process::exit(0);
         })
         .expect("failed to install signal handler");
@@ -102,16 +196,25 @@ pub fn main() {
 
     info!("Starting DLNA Receiver: {name}");
     if let Some(path) = &dump_to {
-        info!("Recording stream to {}", path.display());
+        info!(
+            "Recording stream to {} (with {})",
+            path.display(),
+            backend.program()
+        );
     }
 
     let mut render = Render {
         friendly_name: name,
-        uuid,
+        uuid: uuid.clone(),
         dump_to,
         media: Media::default(),
         started_at: None,
-        player: Player::default(),
+        player: Player {
+            backend,
+            uuid,
+            child: None,
+        },
+        finishing: false,
     };
     for request in server.incoming_requests() {
         render.handle(request);
@@ -129,13 +232,22 @@ struct Media {
     title: String,
 }
 
-#[derive(Default)]
 struct Player {
+    backend: Backend,
+    /// The render's UUID, to unregister when the ffmpeg recorder exits.
+    uuid: String,
     child: Option<Child>,
 }
 
 impl Player {
     fn play(&mut self, media: &Media, dump_to: Option<&Path>) -> std::io::Result<()> {
+        match (self.backend, dump_to) {
+            (Backend::Ffmpeg, Some(path)) => self.record(media, path),
+            _ => self.play_mpv(media, dump_to),
+        }
+    }
+
+    fn play_mpv(&mut self, media: &Media, dump_to: Option<&Path>) -> std::io::Result<()> {
         self.stop();
         let mut cmd = Command::new("mpv");
         cmd.args(["--quiet", "--screen=1", "--no-terminal"]);
@@ -155,6 +267,58 @@ impl Player {
         Ok(())
     }
 
+    /// Record with ffmpeg. A recorder records one stream, so when ffmpeg
+    /// exits (stream ended, error, or we stopped it), the whole process exits.
+    fn record(&mut self, media: &Media, path: &Path) -> std::io::Result<()> {
+        if !is_http(&media.uri) {
+            return Err(std::io::Error::other(format!(
+                "not an http(s) URI: {}",
+                media.uri
+            )));
+        }
+        let mut cmd = ffmpeg_command(&media.uri, path, log::log_enabled!(log::Level::Debug));
+        #[cfg(unix)]
+        {
+            // Its own process group: a terminal Ctrl-C reaches only us, and we
+            // stop ffmpeg ourselves (once) so it can finish the file.
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+        debug!("running: {cmd:?}");
+        let mut child = cmd.stdin(Stdio::null()).spawn()?;
+        FFMPEG_PID.store(child.id(), Ordering::SeqCst);
+
+        let uuid = self.uuid.clone();
+        let path = path.to_path_buf();
+        thread::spawn(move || {
+            let status = child.wait();
+            FFMPEG_PID.store(0, Ordering::SeqCst);
+            config::unregister_render(&uuid);
+            // ffmpeg exits non-zero after we signal it, even when all is well.
+            let stopped = FFMPEG_STOPPING.load(Ordering::SeqCst);
+            let saved = path.metadata().is_ok_and(|m| m.len() > 0);
+            match status {
+                Ok(s) if s.success() || stopped => {
+                    if saved {
+                        info!("recording saved to {}", path.display());
+                        process::exit(0);
+                    }
+                    error!("nothing recorded");
+                }
+                Ok(s) if saved => {
+                    error!(
+                        "ffmpeg failed ({s}); partial recording kept in {}",
+                        path.display()
+                    )
+                }
+                Ok(s) => error!("ffmpeg failed ({s}); nothing recorded"),
+                Err(e) => error!("failed to wait for ffmpeg: {e}"),
+            }
+            process::exit(1);
+        });
+        Ok(())
+    }
+
     fn stop(&mut self) {
         let Some(mut child) = self.child.take() else {
             return;
@@ -163,6 +327,40 @@ impl Player {
         // Reap in the background so the old mpv doesn't linger as a zombie.
         thread::spawn(move || child.wait());
     }
+}
+
+fn is_http(uri: &str) -> bool {
+    let lower = uri.to_ascii_lowercase();
+    lower.starts_with("http://") || lower.starts_with("https://")
+}
+
+/// Container formats whose files need a trailer; for these ffmpeg writes a
+/// fragmented file instead, which stays playable if ffmpeg gets killed.
+fn is_mp4_like(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| ["mp4", "m4v", "mov"].contains(&e.to_ascii_lowercase().as_str()))
+}
+
+fn ffmpeg_command(uri: &str, path: &Path, verbose: bool) -> Command {
+    let mut cmd = Command::new("ffmpeg");
+    cmd.args(["-nostdin", "-hide_banner", "-loglevel"])
+        .arg(if verbose { "warning" } else { "error" })
+        // Network only: a sender's playlist mustn't read local files.
+        .args([
+            "-protocol_whitelist",
+            "http,https,tcp,tls,crypto,httpproxy,data",
+        ])
+        .arg("-i")
+        .arg(uri)
+        // Best video + best audio, copied as-is. Subtitle/data streams
+        // (e.g. WebVTT, ID3 in HLS) often can't be copied into the target.
+        .args(["-c", "copy", "-sn", "-dn"]);
+    if is_mp4_like(path) {
+        cmd.args(["-movflags", "+frag_keyframe+default_base_moof"]);
+    }
+    cmd.arg("-n").arg(path);
+    cmd
 }
 
 #[cfg(unix)]
@@ -185,6 +383,8 @@ struct Render {
     media: Media,
     started_at: Option<Instant>,
     player: Player,
+    /// The ffmpeg recorder is done serving and waits for ffmpeg to finish.
+    finishing: bool,
 }
 
 type Resp = Response<Cursor<Vec<u8>>>;
@@ -255,8 +455,16 @@ impl Render {
 
         if exit_after {
             config::unregister_render(&self.uuid);
-            info!("stopping the recorder as a whole; mpv process is left open");
-            process::exit(0);
+            if self.player.backend == Backend::Mpv {
+                info!("stopping the recorder as a whole; mpv process is left open");
+                process::exit(0);
+            }
+            // Keep answering requests (and exit when ffmpeg does) so the file
+            // gets finished, e.g. for a VOD still downloading.
+            if !self.finishing {
+                self.finishing = true;
+                info!("sender is done; waiting for ffmpeg to finish (Ctrl-C to stop it now)");
+            }
         }
     }
 
@@ -299,7 +507,7 @@ impl Render {
                     return (text(500, "No Media"), false);
                 }
                 if let Err(e) = self.player.play(&self.media, self.dump_to.as_deref()) {
-                    error!("failed to run mpv: {e}");
+                    error!("failed to run {}: {e}", self.player.backend.program());
                     return (text(500, "Failed To Start Player"), false);
                 }
                 self.started_at = Some(Instant::now());
@@ -451,6 +659,34 @@ mod tests {
         assert_eq!(friendly_name(None, false), "Tiny Render");
         assert_eq!(friendly_name(None, true), "Tiny Recorder");
         assert_eq!(friendly_name(Some("TV"), true), "TV (Recorder)");
+    }
+
+    #[test]
+    fn backend_choice() {
+        use Backend::*;
+        // pick_backend(recording, headless, display, has_mpv)
+        assert_eq!(pick_backend(false, false, false, false), Mpv);
+        assert_eq!(pick_backend(true, false, true, true), Mpv);
+        assert_eq!(pick_backend(true, true, true, true), Ffmpeg);
+        assert_eq!(pick_backend(true, false, false, true), Ffmpeg);
+        assert_eq!(pick_backend(true, false, true, false), Ffmpeg);
+    }
+
+    #[test]
+    fn ffmpeg_args() {
+        let args = |path: &str| {
+            let cmd = ffmpeg_command("http://h/a.m3u8", Path::new(path), false);
+            cmd.get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let mp4 = args("/r/out.MP4");
+        assert!(mp4.contains("-i http://h/a.m3u8 -c copy"));
+        assert!(mp4.contains("-movflags"));
+        assert!(mp4.ends_with("-n /r/out.MP4"));
+        assert!(!args("/r/out.ts").contains("-movflags"));
+        assert!(is_http("HTTPS://h/x") && !is_http("file:///etc/passwd"));
     }
 
     #[test]

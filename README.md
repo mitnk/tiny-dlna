@@ -29,6 +29,7 @@ Options:
 --name <NAME>     Specify render name
 --port <PORT>     Server port (default: 59876, or 59877 when recording)
 --dump-to <FILE>  Save the stream into a file (see below)
+--headless        Record with ffmpeg, without a window (see below)
 --http-logs       Enable HTTP and SSDP server logs
 -v, --verbose     Enable debug logs
 ```
@@ -42,6 +43,23 @@ $ tiny-render --dump-to ~/Movie/lol-msi-2024.mp4
 The recorder shows up as "Tiny Recorder". It records one stream: once the
 sender stops (or plays something else), the recorder quits and leaves mpv
 running so the recording can finish.
+
+#### Headless recording (no display, e.g. a server or RaspberryPi)
+
+When there is no display (`DISPLAY`/`WAYLAND_DISPLAY` unset), mpv isn't
+installed, or `--headless` is given, the recorder uses
+[ffmpeg](https://ffmpeg.org/) instead of mpv. ffmpeg copies the stream into
+the file without decoding it, so no window is needed and CPU use stays low.
+
+```
+$ tiny-render --name TinyRecorder --dump-to foobar.mp4
+```
+
+ffmpeg keeps recording after the sender stops, so a video still downloading
+gets finished. The recorder exits when ffmpeg does: when the stream ends, or
+on `Ctrl-C` (or `SIGTERM`), which tells ffmpeg to finish the file first. For a
+live stream, use `Ctrl-C` to end the recording. `.mp4`/`.mov` files are
+written in fragments, so they stay playable even if the process gets killed.
 
 ## Usage for Tiny DLNA Cli
 
@@ -84,7 +102,8 @@ $ tiny-cli seek '00:17:25' -q TV
 
 ### For Render
 
-For running the render, [mpv](https://mpv.io/) needs to be installed. On Mac,
+For running the render, [mpv](https://mpv.io/) needs to be installed
+(headless recording needs [ffmpeg](https://ffmpeg.org/) instead). On Mac,
 you may do following:
 
 ```
