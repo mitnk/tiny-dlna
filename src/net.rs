@@ -18,14 +18,7 @@ pub fn local_ip_towards(target: IpAddr) -> Option<Ipv4Addr> {
 /// non-loopback address; within a class the smallest address wins, which
 /// usually skips VM bridges like 192.168.65.1.
 pub fn host_ip() -> Option<Ipv4Addr> {
-    let mut ips: Vec<Ipv4Addr> = if_addrs::get_if_addrs()
-        .ok()?
-        .into_iter()
-        .filter_map(|iface| match iface.ip() {
-            IpAddr::V4(ip) if !ip.is_loopback() && !ip.is_link_local() => Some(ip),
-            _ => None,
-        })
-        .collect();
+    let mut ips = lan_ips();
     let rank = |ip: &Ipv4Addr| match ip.octets() {
         [192, 168, ..] => 0,
         _ if ip.is_private() => 1,
@@ -33,6 +26,21 @@ pub fn host_ip() -> Option<Ipv4Addr> {
     };
     ips.sort_by_key(|ip| (rank(ip), *ip));
     ips.first().copied()
+}
+
+/// All non-loopback, non-link-local IPv4 addresses of this host, sorted.
+pub fn lan_ips() -> Vec<Ipv4Addr> {
+    let mut ips: Vec<Ipv4Addr> = if_addrs::get_if_addrs()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|iface| match iface.ip() {
+            IpAddr::V4(ip) if !ip.is_loopback() && !ip.is_link_local() => Some(ip),
+            _ => None,
+        })
+        .collect();
+    ips.sort();
+    ips.dedup();
+    ips
 }
 
 /// The address `peer` should use to reach this host.

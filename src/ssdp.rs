@@ -49,19 +49,101 @@ fn is_listening(port: u16) -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()
 }
 
+/// How often the listener wakes up to check its multicast membership.
+const CHECK_EVERY: Duration = Duration::from_secs(5);
+/// Re-join this often even when nothing seems to have changed.
+const REJOIN_EVERY: Duration = Duration::from_secs(60);
+
 fn bind_listener() -> io::Result<UdpSocket> {
     let sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     sock.set_reuse_address(true)?;
     sock.bind(&SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT).into())?;
-    sock.join_multicast_v4(&MULTICAST_IP, &Ipv4Addr::UNSPECIFIED)?;
-    Ok(sock.into())
+    let sock: UdpSocket = sock.into();
+    sock.set_read_timeout(Some(CHECK_EVERY))?;
+    Ok(sock)
+}
+
+/// Keeps the listener joined to the SSDP group on every LAN interface.
+///
+/// The OS can silently drop a socket's multicast membership when the
+/// network goes away, e.g. Wi-Fi turning off while a Mac sleeps. The socket
+/// then still gets unicast traffic but never sees M-SEARCH again, so we
+/// re-join when the interfaces change, after a sleep, and periodically.
+struct Membership {
+    ifaces: Vec<Ipv4Addr>,
+    joined_at: Instant,
+    checked_at: Instant,
+    checked_wall: SystemTime,
+}
+
+impl Membership {
+    fn new(sock: &UdpSocket) -> Self {
+        let ifaces = net::lan_ips();
+        join_group(sock, &ifaces);
+        let now = Instant::now();
+        Membership {
+            ifaces,
+            joined_at: now,
+            checked_at: now,
+            checked_wall: SystemTime::now(),
+        }
+    }
+
+    fn refresh(&mut self, sock: &UdpSocket) {
+        let now = Instant::now();
+        if now - self.checked_at < CHECK_EVERY {
+            return;
+        }
+        let wall = SystemTime::now();
+        // Instant stops while the machine sleeps; wall-clock time doesn't.
+        let wall_gap = wall.duration_since(self.checked_wall).unwrap_or_default();
+        let slept = wall_gap > (now - self.checked_at) + CHECK_EVERY;
+        self.checked_at = now;
+        self.checked_wall = wall;
+
+        let ifaces = net::lan_ips();
+        let changed = ifaces != self.ifaces;
+        if !(changed || slept || now - self.joined_at >= REJOIN_EVERY) {
+            return;
+        }
+        if changed || slept {
+            info!("network changed, re-joining SSDP group on {ifaces:?}");
+        }
+        join_group(sock, &ifaces);
+        self.ifaces = ifaces;
+        self.joined_at = now;
+    }
+}
+
+/// (Re-)join the SSDP group on each interface. Leaving first clears any
+/// stale membership the kernel still holds for this socket.
+fn join_group(sock: &UdpSocket, ifaces: &[Ipv4Addr]) {
+    for ip in ifaces {
+        let _ = sock.leave_multicast_v4(&MULTICAST_IP, ip);
+        if let Err(e) = sock.join_multicast_v4(&MULTICAST_IP, ip) {
+            debug!("failed to join SSDP group on {ip}: {e}");
+        }
+    }
 }
 
 fn listen(sock: &UdpSocket) -> io::Result<()> {
     debug!("SSDP server running at {PORT}");
+    let mut membership = Membership::new(sock);
     let mut buf = [0u8; 2048];
     loop {
-        let (n, addr) = sock.recv_from(&mut buf)?;
+        membership.refresh(sock);
+        let (n, addr) = match sock.recv_from(&mut buf) {
+            Ok(r) => r,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
         let data = &buf[..n];
         if !(contains(data, b"M-SEARCH") && contains(data, b"ssdp:discover")) {
             continue;
